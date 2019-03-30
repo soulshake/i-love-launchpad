@@ -25,16 +25,12 @@ def blink(color="YELLOW", count=3):
     for c in range(0, count):
         for status in "note_on", "note_off":
             for note in range(0, 10):
-                event = {'type': status, 'note': note, 'velocity': color, 'channel': 0}
-                to_send = mido.Message.from_dict(event)
-                p.send(to_send)
+                p.send(mido.Message(status, note=note, velocity=color))
             time.sleep(0.3)
 
 def clear(begin, end):
     for note in range(begin, end):
-        event = {'type': 'note_off', 'note': note, 'channel': 0}
-        to_send = mido.Message.from_dict(event)
-        p.send(to_send)
+        p.send(mido.Message("note_off", note=note))
 
 def display_row(order, offset=0):
     i = 0
@@ -42,10 +38,7 @@ def display_row(order, offset=0):
         i += 1
         if not item:
             continue
-        event = {'type': 'note_on', 'time': 0, 'note': i + offset, 'velocity': order[i-1], 'channel': 0}
-        #print("sending event: {}".format(event))
-        to_send = mido.Message.from_dict(event)
-        p.send(to_send)
+        p.send(mido.Message("note_on", note = i + offset, velocity = order[i-1]))
 
 
 def receive_button_push():
@@ -55,11 +48,8 @@ def receive_button_push():
             continue
         if event.type in ["control_change"]:
             return 999
-        try:
-            if event.velocity == 0:
-                continue
-        except:
-            from IPython import embed; embed()
+        if event.velocity == 0:
+            continue
         return event.note
 
 
@@ -77,7 +67,6 @@ while new_order != sorted(random_order):
     g1, g2 = guesses[0], guesses[1]
     if g1 - 1 not in random_order or g2 - 1 not in random_order:
         blink(color="RED", count=1)
-        #from IPython import embed; embed()
         continue
     value1 = new_order[g1 - 1]
     value2 = new_order[g2 - 1]

@@ -92,25 +92,31 @@ def handle_control_change(event):
 
 def play(g, hues, first_button=11, end=19):
     our_range = [x for x in range(first_button, end)]
+    parallel_range = [x+10 for x in range(first_button, end)]
+    print(parallel_range)
+
     random_order = hues.copy()
     random.shuffle(random_order)
     fill = [(0, 0, 0)] * first_button
     random_order = fill + random_order
     new_order = random_order
 
-    g.display_row(hues, first_button, offset=30)
-    g.display_row(hues, first_button, offset=20)
-    g.display_row(hues, first_button, offset=10)
+    #g.display_row(hues, first_button, offset=40)
+    #g.display_row(hues, first_button, offset=30)
+    #g.display_row(hues, first_button, offset=20)
+    g.display_row(random_order, first_button, offset=10)
     g.display_row(random_order, first_button)
-    g.display_row(hues, first_button, offset=-10)
-    g.display_row(hues, first_button, offset=-20)
-    g.display_row(hues, first_button, offset=-30)
+    #g.display_row(hues, first_button, offset=-10)
+    #g.display_row(hues, first_button, offset=-20)
+    #g.display_row(hues, first_button, offset=-30)
 
     guess_count = 0
     while fill + hues != new_order:
         guesses = []
         while len(guesses) < 2:
             guess = g.receive_button_push()
+            if guess in parallel_range:
+                guess -= 10  # fix this hardcoded offset
             if guess not in our_range:
                 g.blink(color="RED", count=1)
                 logging.info("discarding invalid guess: {} (not in {})".format(guess, our_range))
@@ -129,6 +135,7 @@ def play(g, hues, first_button=11, end=19):
         new_order[index1] = value2
         new_order[index2] = value1
         g.display_row(new_order, first_button)
+        g.display_row(new_order, first_button, offset=10)
 
     logging.info("yay! you won in {} guesses".format(guess_count))
     g.blink(color="GREEN")
@@ -141,7 +148,7 @@ def fill_scale(begin=(
                 random.choice([63,0]),
                 random.choice([63,0]),
                 random.choice([63,0])),
-        size=8):
+            size=8):
 
     ret = [begin]
 

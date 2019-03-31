@@ -15,39 +15,40 @@ logging.basicConfig(level=log_level, format=log_format)
 class Grid(object):
     def __init__(self, p):
         self.p = p
+        self.state = self.make_blank_state()
+
+    def make_blank_state(self):
+        ret = {}
+        for button in self.buttons():
+            ret[button] = (0,0,0)
+        return ret
 
     def clear(self, first_button=11, end=99):
         for note in range(first_button, end):
             self.p.send(mido.Message("note_off", note=note))
 
     def buttons(self):
-        first_button = 11
         ret = []
         for first_button in [11, 21, 31, 41, 51, 61, 71, 81]:
             for x in range(first_button, first_button+8):
                 ret.append(x)
         return ret
 
-    def display_row(self, hues, first_button, offset=0):
-        i = -1
-        for hue in hues:
-            if hue == (0, 0, 0):
-                continue
-            i += 1
-            if not hues:
-                logging.warn("out of hues")
-                return
+    def display_button(self, button, hue):
+        R = hue[0]
+        G = hue[1]
+        B = hue[2]
+        msg = mido.Message("sysex", data=[0, 32, 41, 2, 16, 11, button, R, G, B])
+        logging.info(msg)
+        self.p.send(msg)
 
-            LED = first_button + offset + i
+    def display_row(self, hues, first_button, offset=0, step=1):
+        for i in range(len(hues)):
+
+            LED = first_button + offset + (i*step)
             if LED not in self.buttons():
-                i += 1
                 continue
-            R = hue[0]
-            G = hue[1]
-            B = hue[2]
-            msg = mido.Message("sysex", data=[0, 32, 41, 2, 16, 11, LED, R, G, B])
-            logging.debug(msg)
-            self.p.send(msg)
+            self.display_button(LED, hues[i])
 
     def receive_button_push(self):
         while True:
@@ -74,6 +75,8 @@ class Grid(object):
                 time.sleep(0.3)
 
 
+
+
 def setup():
     portnames = mido.get_ioport_names()
     p = mido.open_ioport(portnames[1])
@@ -86,7 +89,6 @@ def setup():
 def handle_control_change(event):
     if event.control == 94:
         main()
-        from IPython import embed; embed()
     return 999
 
 
@@ -162,13 +164,52 @@ def fill_scale(begin=(
 
     return new_hues
 
+def interpolate_component(c1, c2, num_steps = 8):
+    diff = c2 - c1
+    interval = diff / (num_steps-1)
+    result = [ int(c1 + interval*i) for i in range(num_steps) ]
+    return result
+
+def interpolate_colors(c1, c2, num_steps = 8):
+    r = interpolate_component(c1[0], c2[0], num_steps)
+    g = interpolate_component(c1[1], c2[1], num_steps)
+    b = interpolate_component(c1[2], c2[2], num_steps)
+    return list(zip(r,g,b))
+
 
 def main():
     p = setup()
     g = Grid(p)
     g.clear()
 
-    hues = fill_scale(size=8, begin=(63, 0, 0), end=(0, 63, 0))
-    play(g, hues, first_button=41, end=49)
+    lower_left = (63, 0, 0)
+    lower_right = (0, 0, 63)
+    lower_row = interpolate_colors(lower_left, lower_right)
+    g.display_row(lower_row, 11)
+
+    upper_left = (63, 63, 0)
+    upper_right = (0, 63, 0)
+    upper_row = interpolate_colors(upper_left, upper_right)
+    g.display_row(upper_row, 81)
+
+    #for col in range(11, 19):
+    for col in range(8):
+        column = interpolate_colors(lower_row[col], upper_row[col])
+        g.display_row(column, col+11, step=10)
+
+    """
+    left_col = interpolate_colors(lower_left, upper_left)
+    g.display_row(left_col, 12, step=10)
+
+    right_col = interpolate_colors(lower_right, upper_right)
+    g.display_row(right_col, 19, step=10)
+    """
+
+    #hues = fill_scale(size=8, begin=(63, 0, 0), end=(0, 63, 0))
+    #play(g, hues, first_button=41, end=49)
+
+
+    print("bloop")
+    time.sleep(1)
 
 main()

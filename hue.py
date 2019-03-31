@@ -4,21 +4,32 @@ import mido
 import colors
 import time
 
-# enter programmer mode
-mido.Message("sysex", data=[0, 32, 41, 2, 16, 44, 3])
+
 
 mido.get_ioport_names()
 
 portnames = mido.get_ioport_names()
 p = mido.open_ioport(portnames[1])
 
-begin = 50
-end = 58
-random_order = [x for x in range(begin, end)]
-random.shuffle(random_order)
-fill = [0] * begin
-random_order = fill + random_order
-new_order = random_order
+# enter programmer mode
+p.send(mido.Message("sysex", data=[0, 32, 41, 2, 16, 44, 3]))
+"""
+LED=0
+for R in [10, 20, 30, 40, 50, 60]:
+    for G in [10, 20, 30, 40, 50, 60]:
+        for B in [60, 20, 30, 40, 50, 60]:
+            LED += 1
+            print("{}: {} {} {}".format(LED, R, G, B))
+            p.send(mido.Message("sysex", data=[0, 32, 41, 2, 16, 11, LED, R, G, B]))
+            (240, 0,32,41,2,16,40
+            if LED > 126:
+                break
+        if LED > 126:
+            break
+    if LED > 126:
+        break
+exit()
+"""
 
 def blink(color="YELLOW", count=3):
     color = colors.COLORS[color]
@@ -47,35 +58,49 @@ def receive_button_push():
         if event.type in ["polytouch"]:
             continue
         if event.type in ["control_change"]:
+            print("alerting on control_change event")
             return 999
+        if event.type == "sysex":
+            print("skipping sysex message: {}".format(event.dict()))
+            continue
         if event.velocity == 0:
             continue
         return event.note
 
 
-clear(0, 100)
-
-display_row(sorted(random_order), offset=20)
-display_row(random_order)
 
 
-while new_order != sorted(random_order):
-    guesses = []
-    for x in range(0, 2):
-        guesses.append(receive_button_push())
+def play(begin=50, end=58):
+    random_order = [x for x in range(begin, end)]
+    random.shuffle(random_order)
+    fill = [0] * begin
+    random_order = fill + random_order
+    new_order = random_order
 
-    g1, g2 = guesses[0], guesses[1]
-    if g1 - 1 not in random_order or g2 - 1 not in random_order:
-        blink(color="RED", count=1)
-        continue
-    value1 = new_order[g1 - 1]
-    value2 = new_order[g2 - 1]
-    index1 = new_order.index(value1)
-    index2 = new_order.index(value2)
+    display_row(sorted(random_order), offset=20)
+    display_row(random_order)
 
-    new_order[index1] = value2
-    new_order[index2] = value1
-    display_row(new_order)
+    while new_order != sorted(random_order):
+        guesses = []
+        for x in range(0, 2):
+            guesses.append(receive_button_push())
 
-print("yay!")
-blink(color="GREEN")
+        g1, g2 = guesses[0], guesses[1]
+        if g1 - 1 not in random_order or g2 - 1 not in random_order:
+            blink(color="RED", count=1)
+            continue
+        value1 = new_order[g1 - 1]
+        value2 = new_order[g2 - 1]
+        index1 = new_order.index(value1)
+        index2 = new_order.index(value2)
+
+        new_order[index1] = value2
+        new_order[index2] = value1
+        display_row(new_order)
+
+    print("yay!")
+    blink(color="GREEN")
+
+
+clear(11, 99)
+play()

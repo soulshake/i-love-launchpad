@@ -13,12 +13,12 @@ logging.basicConfig(level=log_level, format=log_format)
 # /etc/X11/rgb.txt
 
 class Grid(object):
-    def __init__(self):
-        pass
+    def __init__(self, p):
+        self.p = p
 
     def clear(self, first_button=11, end=99):
         for note in range(first_button, end):
-            p.send(mido.Message("note_off", note=note))
+            self.p.send(mido.Message("note_off", note=note))
 
     def buttons(self):
         first_button = 11
@@ -27,6 +27,51 @@ class Grid(object):
             for x in range(first_button, first_button+8):
                 ret.append(x)
         return ret
+
+    def display_row(self, hues, first_button, offset=0):
+        i = -1
+        for hue in hues:
+            if hue == (0, 0, 0):
+                continue
+            i += 1
+            if not hues:
+                logging.warn("out of hues")
+                return
+
+            LED = first_button + offset + i
+            if LED not in self.buttons():
+                i += 1
+                continue
+            R = hue[0]
+            G = hue[1]
+            B = hue[2]
+            msg = mido.Message("sysex", data=[0, 32, 41, 2, 16, 11, LED, R, G, B])
+            logging.debug(msg)
+            self.p.send(msg)
+
+    def receive_button_push(self):
+        while True:
+            event = self.p.receive()
+            if event.type in ["polytouch"]:
+                continue
+            if event.type in ["control_change"]:
+                logging.info("alerting on control_change event")
+                return handle_control_change(event)
+            if event.type == "sysex":
+                logging.info("skipping sysex message: {}".format(event.dict()))
+                continue
+            if event.velocity == 0:
+                continue
+
+            return event.note
+
+    def blink(self, color="YELLOW", count=3):
+        color = colors.COLORS[color]
+        for c in range(0, count):
+            for status in "note_on", "note_off":
+                for note in range(0, 10):
+                    self.p.send(mido.Message(status, note=note, velocity=color))
+                time.sleep(0.3)
 
 
 def setup():
@@ -38,52 +83,14 @@ def setup():
     return p
 
 
-def blink(color="YELLOW", count=3):
-    color = colors.COLORS[color]
-    for c in range(0, count):
-        for status in "note_on", "note_off":
-            for note in range(0, 10):
-                p.send(mido.Message(status, note=note, velocity=color))
-            time.sleep(0.3)
+def handle_control_change(event):
+    if event.control == 94:
+        main()
+        from IPython import embed; embed()
+    return 999
 
-def display_row(hues, first_button, offset=0):
-    i = -1
-    for hue in hues:
-        if hue == (0, 0, 0):
-            continue
-        i += 1
-        if not hues:
-            logging.warn("out of hues")
-            return
 
-        LED = first_button + offset + i
-        if LED not in Grid().buttons():
-            i += 1
-            continue
-        R = hue[0]
-        G = hue[1]
-        B = hue[2]
-        msg = mido.Message("sysex", data=[0, 32, 41, 2, 16, 11, LED, R, G, B])
-        logging.debug(msg)
-        p.send(msg)
-
-def receive_button_push():
-    while True:
-        event = p.receive()
-        if event.type in ["polytouch"]:
-            continue
-        if event.type in ["control_change"]:
-            logging.info("alerting on control_change event")
-            return 999
-        if event.type == "sysex":
-            logging.info("skipping sysex message: {}".format(event.dict()))
-            continue
-        if event.velocity == 0:
-            continue
-
-        return event.note
-
-def play(hues, first_button=11, end=19):
+def play(g, hues, first_button=11, end=19):
     our_range = [x for x in range(first_button, end)]
     random_order = hues.copy()
     random.shuffle(random_order)
@@ -91,16 +98,21 @@ def play(hues, first_button=11, end=19):
     random_order = fill + random_order
     new_order = random_order
 
-    display_row(hues, first_button, offset=20)
-    display_row(random_order, first_button)
+    g.display_row(hues, first_button, offset=30)
+    g.display_row(hues, first_button, offset=20)
+    g.display_row(hues, first_button, offset=10)
+    g.display_row(random_order, first_button)
+    g.display_row(hues, first_button, offset=-10)
+    g.display_row(hues, first_button, offset=-20)
+    g.display_row(hues, first_button, offset=-30)
 
     guess_count = 0
     while fill + hues != new_order:
         guesses = []
         while len(guesses) < 2:
-            guess = receive_button_push()
+            guess = g.receive_button_push()
             if guess not in our_range:
-                blink(color="RED", count=1)
+                g.blink(color="RED", count=1)
                 logging.info("discarding invalid guess: {} (not in {})".format(guess, our_range))
                 guesses = []
                 continue
@@ -116,12 +128,21 @@ def play(hues, first_button=11, end=19):
 
         new_order[index1] = value2
         new_order[index2] = value1
-        display_row(new_order, first_button)
+        g.display_row(new_order, first_button)
 
     logging.info("yay! you won in {} guesses".format(guess_count))
-    blink(color="GREEN")
+    g.blink(color="GREEN")
 
-def fill_scale(begin=(random.randint(0, 64), random.randint(0, 64), random.randint(0, 64)), end=(63, 0, 0), size=8):
+def fill_scale(begin=(
+                random.randint(0, 64),
+                random.randint(0, 64),
+                random.randint(0, 64)),
+            end=(
+                random.choice([63,0]),
+                random.choice([63,0]),
+                random.choice([63,0])),
+        size=8):
+
     ret = [begin]
 
     new_hues = []
@@ -135,9 +156,12 @@ def fill_scale(begin=(random.randint(0, 64), random.randint(0, 64), random.randi
     return new_hues
 
 
-p = setup()
-g = Grid()
-g.clear()
+def main():
+    p = setup()
+    g = Grid(p)
+    g.clear()
 
-hues = fill_scale(size=8)
-play(hues)
+    hues = fill_scale(size=8, begin=(63, 0, 0), end=(0, 63, 0))
+    play(g, hues, first_button=41, end=49)
+
+main()

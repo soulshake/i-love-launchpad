@@ -38,24 +38,6 @@ def setup():
     return p
 
 
-"""
-LED=0
-for R in [10, 20, 30, 40, 50, 60]:
-    for G in [10, 20, 30, 40, 50, 60]:
-        for B in [60, 20, 30, 40, 50, 60]:
-            LED += 1
-            print("{}: {} {} {}".format(LED, R, G, B))
-            p.send(mido.Message("sysex", data=[0, 32, 41, 2, 16, 11, LED, R, G, B]))
-            (240, 0,32,41,2,16,40
-            if LED > 126:
-                break
-        if LED > 126:
-            break
-    if LED > 126:
-        break
-exit()
-"""
-
 def blink(color="YELLOW", count=3):
     color = colors.COLORS[color]
     for c in range(0, count):
@@ -67,7 +49,7 @@ def blink(color="YELLOW", count=3):
 def display_row(hues, first_button, offset=0):
     i = -1
     for hue in hues:
-        if hue == {"R": 0, "G": 0, "B": 0}:
+        if hue == (0, 0, 0):
             continue
         i += 1
         if not hues:
@@ -78,13 +60,12 @@ def display_row(hues, first_button, offset=0):
         if LED not in Grid().buttons():
             i += 1
             continue
-        R = hue["R"]
-        G = hue["G"]
-        B = hue["B"]
+        R = hue[0]
+        G = hue[1]
+        B = hue[2]
         msg = mido.Message("sysex", data=[0, 32, 41, 2, 16, 11, LED, R, G, B])
         logging.debug(msg)
         p.send(msg)
-
 
 def receive_button_push():
     while True:
@@ -100,22 +81,21 @@ def receive_button_push():
         if event.velocity == 0:
             continue
 
-        
         return event.note
-
 
 def play(hues, first_button=11, end=19):
     our_range = [x for x in range(first_button, end)]
     random_order = hues.copy()
     random.shuffle(random_order)
-    fill = [{"R": 0, "G": 0, "B": 0}] * first_button
+    fill = [(0, 0, 0)] * first_button
     random_order = fill + random_order
     new_order = random_order
 
     display_row(hues, first_button, offset=20)
     display_row(random_order, first_button)
 
-    while new_order != hues:
+    guess_count = 0
+    while fill + hues != new_order:
         guesses = []
         while len(guesses) < 2:
             guess = receive_button_push()
@@ -126,6 +106,8 @@ def play(hues, first_button=11, end=19):
                 continue
             guesses.append(guess)
 
+        guess_count += 1
+
         g1, g2 = guesses[0], guesses[1]
         value1 = new_order[g1]
         value2 = new_order[g2]
@@ -134,26 +116,18 @@ def play(hues, first_button=11, end=19):
 
         new_order[index1] = value2
         new_order[index2] = value1
-        logging.info(new_order)
-        logging.info(hues)
-        logging.info("---")
         display_row(new_order, first_button)
 
-    logging.info("yay!")
+    logging.info("yay! you won in {} guesses".format(guess_count))
     blink(color="GREEN")
 
-def increment_rgb(hue={"R": 64, "G": 64, "B": 64}, intervals={"R": 10, "G": 10, "B": 10}):
-    for k in hue:
-        hue[k] = hue[k] + intervals[k]
-    return hue
-
-def fill_scale(begin={"R": random.randint(0, 64), "G": random.randint(0, 64), "B": random.randint(0, 64)}, end={"R": 63, "G": 0, "B": 0}, size=8):
+def fill_scale(begin=(random.randint(0, 64), random.randint(0, 64), random.randint(0, 64)), end=(63, 0, 0), size=8):
     ret = [begin]
 
     new_hues = []
     for i in range(0, size):
         new_hue = {}
-        for x in ["R", "G", "B"]:
+        for x in [0, 1, 2]:
             interval = (end[x] - begin[x]) / size
             new_hue[x] = int(begin[x] + (i * interval))
         new_hues.append(new_hue)
@@ -161,28 +135,9 @@ def fill_scale(begin={"R": random.randint(0, 64), "G": random.randint(0, 64), "B
     return new_hues
 
 
-def generate_scale(begin={"R": 10, "G": 30, "B": 20}, intervals={"R": 9, "G": 4, "B": 9}, ret=[], max=8):
-    # et R, G, B sont dans [0-63]
-    return fill_scale()
-
-    buttons = []
-    for i in range(1, max):
-        button = {}
-        for k in begin:
-            button[k] = 0
-            button[k] += intervals[k]
-            intervals[k] += int((intervals[k] / i))
-        buttons.append(button)
-    return buttons
-
-hues = generate_scale(max=8)
-for hue in hues:
-    print(hue)
-
 p = setup()
-
 g = Grid()
 g.clear()
 
-
+hues = fill_scale(size=8)
 play(hues)

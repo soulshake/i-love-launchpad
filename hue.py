@@ -23,7 +23,7 @@ class Grid(object):
             ret[button] = (0,0,0)
         return ret
 
-    def clear(self, first_button=11, end=99):
+    def clear(self, first_button=1, end=99):
         for note in range(first_button, end):
             self.p.send(mido.Message("note_off", note=note))
 
@@ -39,16 +39,26 @@ class Grid(object):
         G = hue[1]
         B = hue[2]
         msg = mido.Message("sysex", data=[0, 32, 41, 2, 16, 11, button, R, G, B])
-        logging.info(msg)
+        logging.debug(msg)
         self.p.send(msg)
 
-    def display_row(self, hues, first_button, offset=0, step=1):
-        for i in range(len(hues)):
+    def display_row(self, hues, first_button, offset=0, step=1, sleep=0):
+        assert isinstance(hues, dict)
 
-            LED = first_button + offset + (i*step)
+        for k in hues:
+            LED = k
+            self.display_button(LED, hues[k])
+            time.sleep(sleep)
             if LED not in self.buttons():
-                continue
+                #from IPython import embed; embed()
+                print(LED)
+                raise ValueError("{} not in self.buttons()".format(LED))
+
+        """
+        for i in range(len(hues.)):
+            LED = first_button + offset + (i*step)
             self.display_button(LED, hues[i])
+        """
 
     def receive_button_push(self):
         while True:
@@ -74,7 +84,32 @@ class Grid(object):
                     self.p.send(mido.Message(status, note=note, velocity=color))
                 time.sleep(0.3)
 
+    def fill_scale(self, first_button = 11,
+                begin=(
+                    random.randint(0, 64),
+                    random.randint(0, 64),
+                    random.randint(0, 64)),
+                end=(
+                    random.choice([63,0]),
+                    random.choice([63,0]),
+                    random.choice([63,0])),
+                size=8):
 
+        new_hues = {}
+        for button in self.buttons():
+            new_hues[button] = {0: 0, 1: 0, 2: 0}
+
+        for i in range(first_button, first_button+size):
+            new_hue = {}
+            for x in [0, 1, 2]:
+                interval = (end[x] - begin[x]) / size
+                new_hue[x] = int(begin[x] + ((i-first_button) * interval))
+            #new_hues.append(new_hue)
+            if i not in new_hues:
+                logging.warn("tried to assign to nonexistent button")
+            new_hues[i] = new_hue
+
+        return new_hues
 
 
 def setup():
@@ -92,33 +127,36 @@ def handle_control_change(event):
     return 999
 
 
+def are_equal(scrambled_hues, correct_hues):
+    for k in scrambled_hues:
+        if scrambled_hues[k] != correct_hues[k]:
+            logging.debug("{} != {}".format(scrambled_hues[k], correct_hues[k]))
+            return False
+        logging.debug("{} == {}".format(scrambled_hues[k], correct_hues[k]))
+    return True
+
 def play(g, hues, first_button=11, end=19):
+    correct_hues = hues
+    scrambled_hues = hues.copy()
+
+    g.display_row(correct_hues, 11)
+    time.sleep(.5)
+
     our_range = [x for x in range(first_button, end)]
-    parallel_range = [x+10 for x in range(first_button, end)]
-    print(parallel_range)
+    scrambled_hues = {k:v for k,v in hues.items() if k in our_range}
+    scrambled_keys = [x for x in scrambled_hues.keys()]
+    random.shuffle(scrambled_keys)
+    #from IPython import embed; embed()
 
-    random_order = hues.copy()
-    random.shuffle(random_order)
-    fill = [(0, 0, 0)] * first_button
-    random_order = fill + random_order
-    new_order = random_order
+    for k in range(first_button, end):
+        scrambled_hues[k] = correct_hues[scrambled_keys.pop()]
 
-    #g.display_row(hues, first_button, offset=40)
-    #g.display_row(hues, first_button, offset=30)
-    #g.display_row(hues, first_button, offset=20)
-    g.display_row(random_order, first_button, offset=10)
-    g.display_row(random_order, first_button)
-    #g.display_row(hues, first_button, offset=-10)
-    #g.display_row(hues, first_button, offset=-20)
-    #g.display_row(hues, first_button, offset=-30)
-
+    g.display_row(scrambled_hues, 11, sleep=.1)
     guess_count = 0
-    while fill + hues != new_order:
+    while not are_equal(scrambled_hues, correct_hues):
         guesses = []
         while len(guesses) < 2:
             guess = g.receive_button_push()
-            if guess in parallel_range:
-                guess -= 10  # fix this hardcoded offset
             if guess not in our_range:
                 g.blink(color="RED", count=1)
                 logging.info("discarding invalid guess: {} (not in {})".format(guess, our_range))
@@ -126,9 +164,26 @@ def play(g, hues, first_button=11, end=19):
                 continue
             guesses.append(guess)
 
+        g1, g2 = guesses[0], guesses[1]
+        value1 = scrambled_hues[g1]
+        value2 = scrambled_hues[g2]
+
+        scrambled_hues[g1] = value2
+        scrambled_hues[g2] = value1
+        g.display_row(scrambled_hues, 11)
+
         guess_count += 1
 
-        g1, g2 = guesses[0], guesses[1]
+        print("{} vs {}".format(scrambled_hues[g1], scrambled_hues[g2]))
+        print("{} vs {}".format(correct_hues[g1], correct_hues[g2]))
+        print("----")
+
+
+
+
+    """
+    while fill + hues != new_order:
+
         value1 = new_order[g1]
         value2 = new_order[g2]
         index1 = new_order.index(value1)
@@ -139,30 +194,10 @@ def play(g, hues, first_button=11, end=19):
         g.display_row(new_order, first_button)
         g.display_row(new_order, first_button, offset=10)
 
+    """
     logging.info("yay! you won in {} guesses".format(guess_count))
     g.blink(color="GREEN")
 
-def fill_scale(begin=(
-                random.randint(0, 64),
-                random.randint(0, 64),
-                random.randint(0, 64)),
-            end=(
-                random.choice([63,0]),
-                random.choice([63,0]),
-                random.choice([63,0])),
-            size=8):
-
-    ret = [begin]
-
-    new_hues = []
-    for i in range(0, size):
-        new_hue = {}
-        for x in [0, 1, 2]:
-            interval = (end[x] - begin[x]) / size
-            new_hue[x] = int(begin[x] + (i * interval))
-        new_hues.append(new_hue)
-
-    return new_hues
 
 def interpolate_component(c1, c2, num_steps = 8):
     diff = c2 - c1
@@ -181,32 +216,40 @@ def main():
     p = setup()
     g = Grid(p)
     g.clear()
+    #hues = g.fill_scale(size=8, first_button=81, begin=(63, 0, 0), end=(0, 63, 0))
+    hues = {}
 
+    # Fill lower row
     lower_left = (63, 0, 0)
     lower_right = (0, 0, 63)
     lower_row = interpolate_colors(lower_left, lower_right)
-    g.display_row(lower_row, 11)
+    for x in range(8):
+        hues[x+11] = lower_row[x]
+    g.display_row(hues, 11)
 
-    upper_left = (63, 63, 0)
-    upper_right = (0, 63, 0)
+    # Fill upper row
+    upper_left = (0, 63, 0)
+    upper_right = (0, 63, 63)
     upper_row = interpolate_colors(upper_left, upper_right)
-    g.display_row(upper_row, 81)
+    for x in range(8):
+        hues[x+81] = upper_row[x]
+    g.display_row(hues, 81)
 
-    #for col in range(11, 19):
+    time.sleep(1)
+    # fill all columns
     for col in range(8):
-        column = interpolate_colors(lower_row[col], upper_row[col])
-        g.display_row(column, col+11, step=10)
+        a = col + 11
+        b = col + 81 #a + 70
+        colors = interpolate_colors(hues[a], hues[b])
+        for x in range(8):
+            button = a + (x*10)
+            try:
+                hues[button] = colors[x]
+            except:
+                print(button, col, x)
+    g.display_row(hues, 81)
 
-    """
-    left_col = interpolate_colors(lower_left, upper_left)
-    g.display_row(left_col, 12, step=10)
-
-    right_col = interpolate_colors(lower_right, upper_right)
-    g.display_row(right_col, 19, step=10)
-    """
-
-    #hues = fill_scale(size=8, begin=(63, 0, 0), end=(0, 63, 0))
-    #play(g, hues, first_button=41, end=49)
+    play(g, hues, first_button=41, end=49)
 
 
     print("bloop")

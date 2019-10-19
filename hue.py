@@ -54,11 +54,6 @@ class Grid(object):
                 print(LED)
                 raise ValueError("{} not in self.buttons()".format(LED))
 
-        """
-        for i in range(len(hues.)):
-            LED = first_button + offset + (i*step)
-            self.display_button(LED, hues[i])
-        """
 
     def receive_button_push(self):
         while True:
@@ -78,9 +73,9 @@ class Grid(object):
 
     def blink(self, color="YELLOW", count=3):
         color = colors.COLORS[color]
-        for c in range(0, count):
+        for c in range(count):
             for status in "note_on", "note_off":
-                for note in range(0, 10):
+                for note in range(10):
                     self.p.send(mido.Message(status, note=note, velocity=color))
                 time.sleep(0.3)
 
@@ -111,6 +106,13 @@ class Grid(object):
 
         return new_hues
 
+    def pulse_buttons(self, buttons):
+        # last param is the color
+        for button in buttons:
+            msg = mido.Message("sysex", data=[0, 32, 41, 2, 16, 40, button, 0])
+            logging.debug(msg)
+            self.p.send(msg)
+
 
 def setup():
     portnames = mido.get_ioport_names()
@@ -135,34 +137,46 @@ def are_equal(scrambled_hues, correct_hues):
         logging.debug("{} == {}".format(scrambled_hues[k], correct_hues[k]))
     return True
 
-def play(g, hues, first_button=11, end=19):
+def play(g, hues, to_scramble=list(range(11, 19))):
     correct_hues = hues
     scrambled_hues = hues.copy()
 
     g.display_row(correct_hues, 11)
     time.sleep(.5)
 
-    our_range = [x for x in range(first_button, end)]
+    our_range = to_scramble
     scrambled_hues = {k:v for k,v in hues.items() if k in our_range}
     scrambled_keys = [x for x in scrambled_hues.keys()]
     random.shuffle(scrambled_keys)
-    #from IPython import embed; embed()
 
-    for k in range(first_button, end):
+    for k in to_scramble:
+        if k not in g.buttons():
+            continue
         scrambled_hues[k] = correct_hues[scrambled_keys.pop()]
+    assert scrambled_keys == []
 
     g.display_row(scrambled_hues, 11, sleep=.1)
+
     guess_count = 0
+
     while not are_equal(scrambled_hues, correct_hues):
         guesses = []
         while len(guesses) < 2:
             guess = g.receive_button_push()
+            if guess == 999:
+                g.pulse_buttons(scrambled_hues)
+                time.sleep(.3)
+                g.display_row(scrambled_hues, 11)
             if guess not in our_range:
                 g.blink(color="RED", count=1)
                 logging.info("discarding invalid guess: {} (not in {})".format(guess, our_range))
-                guesses = []
+                if guesses != []:
+                    g.display_button(guesses[0], scrambled_hues[guesses[0]])
+                    guesses = []
                 continue
             guesses.append(guess)
+            g.pulse_buttons([guesses[0]])
+        g.display_button(guesses[0], scrambled_hues[guesses[0]])
 
         g1, g2 = guesses[0], guesses[1]
         value1 = scrambled_hues[g1]
@@ -177,6 +191,9 @@ def play(g, hues, first_button=11, end=19):
         print("{} vs {}".format(scrambled_hues[g1], scrambled_hues[g2]))
         print("{} vs {}".format(correct_hues[g1], correct_hues[g2]))
         print("----")
+        # pulse event received?
+        #g.pulse_buttons(scrambled_hues)
+        g.display_row(scrambled_hues, 11, sleep=.1)
 
 
 
@@ -235,7 +252,8 @@ def main():
         hues[x+81] = upper_row[x]
     g.display_row(hues, 81)
 
-    time.sleep(1)
+    time.sleep(.5)
+
     # fill all columns
     for col in range(8):
         a = col + 11
@@ -248,8 +266,22 @@ def main():
             except:
                 print(button, col, x)
     g.display_row(hues, 81)
+    #to_scramble=[12,22,32,42,52,62,72,82]
+    #to_scramble.extend([17,27,37,47,57,67,77,87])
+    #to_scramble.extend([18,28,38,48,58,68,78,88])
+    to_scramble = []
+    to_scramble=[41,32,23,14,15,26,37,48]
+    to_scramble.extend([51,62,73,84,85,76,67,58])
+    to_scramble = [
+        22,23,24,25,26,27,
+        32,33,34,35,36,37,
+        42,43,44,45,46,47,
+        52,53,54,55,56,57,
+        62,63,64,65,66,67,
+        72,73,74,75,76,77
+    ]
 
-    play(g, hues, first_button=41, end=49)
+    play(g, hues, to_scramble)
 
 
     print("bloop")
